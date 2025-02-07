@@ -1,0 +1,10 @@
+asgiref==3.8.1
+Django==5.1
+Faker==35.0.0
+git-filter-repo==2.45.0
+pillow==10.4.0
+python-dateutil==2.9.0.post0
+six==1.17.0
+sqlparse==0.5.1
+typing_extensions==4.12.2
+uv==0.5.21
