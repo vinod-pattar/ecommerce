@@ -9,6 +9,8 @@ import razorpay
 from django.conf import settings
 from django.middleware.csrf import get_token
 from django.http import JsonResponse
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.generics import ListAPIView
 # from datetime import datetime
 
 # Create your views here.
@@ -54,19 +56,25 @@ class CategoryView(APIView):
 
 
 ###### Products ##########
+class ProductsPaginator(PageNumberPagination):
+    page_size = 5
+    page_size_query_param = 'page_size'
+    max_page_size = 5
+
 class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = ('id', 'name', 'slug', 'description', 'category', 'seller', 'price', 'image')
 
-class ProductsView(APIView):
+class ProductsView(ListAPIView):
+    queryset = Product.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = ProductSerializer
+    pagination_class = ProductsPaginator
 
-    def get(self, request):
-        products = Product.objects.all()
-        serializer = ProductSerializer(products, many=True)
-        return Response(serializer.data) 
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        return Response(response.data) 
 
 
 class CategoryProductsView(APIView):
@@ -376,6 +384,50 @@ class CheckoutView(APIView):
 
 ####### End of Checkout ######
 
+
+
+######### Verify Payment ##########
+
+class VerifyPaymentSerializer(serializers.Serializer):
+    razorpay_order_id = serializers.CharField()
+    razorpay_payment_id = serializers.CharField()
+    razorpay_signature = serializers.CharField()
+
+
+class VerifyPaymentView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = VerifyPaymentSerializer
+
+    def post(self, request):
+        serializer = VerifyPaymentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        order = Order.objects.get(razorpay_order_id=serializer.validated_data['razorpay_order_id'])
+        order.razorpay_payment_id = serializer.validated_data['razorpay_payment_id']
+        order.razorpay_signature = serializer.validated_data['razorpay_signature']
+
+        client = razorpay.Client(auth=(settings.RAZORPAY_KEY, settings.RAZORPAY_SECRET))
+        params_dict = {
+            'razorpay_order_id': order.razorpay_order_id,
+            'razorpay_payment_id': order.razorpay_payment_id,
+            'razorpay_signature': order.razorpay_signature
+        }
+
+        try:
+            client.utility.verify_payment_signature(params_dict)
+            order.payment_mode = 'Online Payment'
+            order.amount_due = 0
+            order.amount_paid = order.total
+            order.save()
+
+            # Send an email confirmation to the user
+            return Response({"message": "Payment verified successfully"}, status=status.HTTP_200_OK)
+        except razorpay.errors.SignatureVerificationError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+######## End of Verify Payment ################
+
 ######## Addresses ##########
 
 class AddressSerializer(serializers.ModelSerializer):
@@ -416,4 +468,7 @@ class AddressesView(APIView):
 
 
 ######End of Addresses #######
+
+
+
 
